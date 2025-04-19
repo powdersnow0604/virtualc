@@ -1,0 +1,6 @@
+Please make CMakeLists.txt which builds virtualc.cc, icl.cc, g++.cc, gcc.cc
+I will notate cmake install prefix as PREIFX
+virtualc must be placed in PREFIX/bin
+other files must be placed under PREFIX/bin/virtualc
+
+virtualc.cc must copy files under PREFIX/bin/virtualc into env_name/bin
