@@ -6,6 +6,29 @@ set -e
 # Print commands as they are executed
 #set -x
 
+# Check if cmake, pkg-config installed
+if ! command -v cmake &> /dev/null; then
+    echo "cmake could not be found"
+    # Ask user if they want to install cmake
+    read -p "Do you want to install cmake? (y/n): " answer
+    if [ "$answer" == "y" ] || [ "$answer" == "Y" ]; then
+        sudo apt-get install cmake
+    else
+        exit 1
+    fi
+fi
+
+if ! command -v pkg-config &> /dev/null; then
+    echo "pkg-config could not be found"
+    # Ask user if they want to install pkg-config
+    read -p "Do you want to install pkg-config? (y/n): " answer
+    if [ "$answer" == "y" ] || [ "$answer" == "Y" ]; then
+        sudo apt-get install pkg-config
+    else
+        exit 1
+    fi
+fi
+
 # Default installation prefix
 PREFIX=${PREFIX:-/usr/local}
 
@@ -27,6 +50,12 @@ done
 echo "Building with installation prefix: $PREFIX"
 
 # Create and enter the build directory
+if [ -d build ]; then
+    read -p "Build directory already exists. Do you want to delete it? (y/n): " answer
+    if [ "$answer" == "y" ] || [ "$answer" == "Y" ]; then
+        rm -rf build
+    fi
+fi
 mkdir -p build
 cd build
 

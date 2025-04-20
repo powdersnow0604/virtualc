@@ -4,12 +4,45 @@
 #include <vector>
 #include <cstdlib>
 #include <nlohmann/json.hpp>
+#include <cctype>  // For toupper
+#include <memory>
+#include <sstream>
 
 using json = nlohmann::json;
 
 
 std::string env_bin_dir = std::string(std::getenv("VIRTUAL_ENV")) + "/bin";
+// Define the directory where custom library scripts are stored
+#ifdef VIRTUALC_BIN_DIR
+    const char* source_dir = VIRTUALC_BIN_DIR;
+#else
+    // Fallback for when not defined during compilation
+    const char* source_dir = "/usr/local/bin/virtualcdir";
+#endif
+std::string libs_dir = std::string(source_dir) + "/libs";
 
+// Function to convert string to uppercase
+std::string to_uppercase(const std::string& str) {
+    std::string result = str;
+    for (char& c : result) {
+        c = std::toupper(c);
+    }
+    return result;
+}
+
+// Function to convert string to lowercase
+std::string to_lowercase(const std::string& str) {
+    std::string result = str;
+    for (char& c : result) {
+        c = std::tolower(c);
+    }
+    return result;
+}
+
+// Function to execute a shell command and get the result
+int execute_command(const std::string& command) {
+    return system(command.c_str());
+}
 
 // Function to check if a path is in the ignore list
 bool is_path_ignored(const std::string& path) {
@@ -176,6 +209,83 @@ void parse_pkg_config_output(const std::string& output, std::vector<std::string>
     }
 }
 
+// Function to try installing a library using custom script
+bool try_install_custom_library(const std::string& lib_name) {
+    // Convert library name to uppercase for directory search
+    std::string lib_dir_name = to_uppercase(lib_name);
+    std::string script_path = libs_dir + "/" + lib_dir_name + "/install_" + to_lowercase(lib_name) + ".sh";
+    std::string lib_dir = libs_dir + "/" + lib_dir_name;
+    std::string morevariable_path = lib_dir + "/.morevariable";
+    
+    // Check if the script exists
+    std::ifstream script_file(script_path);
+    if (!script_file) {
+        std::cerr << "No custom installation script found for library '" << lib_name << "'" << std::endl;
+        return false;
+    }
+    script_file.close();
+    
+    // Make sure the script is executable
+    // Assume the script is already executable (from virtualc install or upgrade)
+    // std::string chmod_cmd = "sudo chmod +x " + script_path;
+    // execute_command(chmod_cmd);
+
+    // Create a temporary directory for installation
+    std::string temp_dir = "/tmp/icl_install_" + lib_name + "_" + std::to_string(std::time(nullptr));
+    std::string mkdir_cmd = "mkdir -p " + temp_dir;
+    if (execute_command(mkdir_cmd) != 0) {
+        std::cerr << "Error: Failed to create temporary directory for installation" << std::endl;
+        return false;
+    }
+    
+    // Prepare command arguments
+    std::string cmd_args;
+    
+    // Always ask for version number as the first argument
+    std::string version;
+    std::cout << "Enter version number for " << lib_name << ": ";
+    std::getline(std::cin, version);
+    cmd_args = version;
+    
+    // Check if .morevariable file exists
+    std::ifstream morevariable_file(morevariable_path);
+    if (morevariable_file) {
+        std::cout << "Additional parameters needed for " << lib_name << ":" << std::endl;
+        
+        // Read each line as a description and prompt for input
+        std::string description;
+        while (std::getline(morevariable_file, description)) {
+            if (!description.empty()) {
+                std::string variable_value;
+                std::cout << description << ": ";
+                std::getline(std::cin, variable_value);
+                
+                // Add the value to command arguments
+                cmd_args += " \"" + variable_value + "\"";
+            }
+        }
+        morevariable_file.close();
+    }
+    
+    // Execute the installation script with all arguments in the temporary directory
+    std::string cmd = "cd " + temp_dir + " && " + script_path + " " + cmd_args;
+    std::cout << "Executing installation script in " << script_path << std::endl;
+    
+    int result = execute_command(cmd);
+    
+    // Clean up the temporary directory
+    std::string cleanup_cmd = "rm -rf " + temp_dir;
+    execute_command(cleanup_cmd);
+    
+    if (result != 0) {
+        std::cerr << "Installation script failed with exit code " << result << std::endl;
+        return false;
+    }
+    
+    std::cout << "Installation script completed successfully." << std::endl;
+    return true;
+}
+
 // Function to install a library
 void install_library(const std::string& lib_name) {
     // Check if pkg-config knows about this library
@@ -184,9 +294,25 @@ void install_library(const std::string& lib_name) {
     // Run pkg-config --exists to check if the package exists
     std::string check_cmd = "pkg-config --exists " + lib_name;
     int pkg_exists = system(check_cmd.c_str());
+    
+    // If pkg-config doesn't find the library, try custom installation
     if (pkg_exists != 0) {
-        std::cerr << "Error: Library '" << lib_name << "' not found by pkg-config" << std::endl;
-        return;
+        std::cout << "Library '" << lib_name << "' not found by pkg-config, trying custom installation..." << std::endl;
+        
+        // Try to install with custom script
+        bool custom_install_success = try_install_custom_library(lib_name);
+        
+        // If custom installation succeeded, check pkg-config again
+        if (custom_install_success) {
+            pkg_exists = system(check_cmd.c_str());
+            if (pkg_exists != 0) {
+                std::cerr << "Error: Library '" << lib_name << "' was not found by pkg-config after custom installation" << std::endl;
+                return;
+            }
+        } else {
+            std::cerr << "Error: Failed to install library '" << lib_name << "'" << std::endl;
+            return;
+        }
     }
     
     try {
@@ -293,6 +419,88 @@ void list_libraries() {
     }
 }
 
+// Function to upgrade the libs directory
+void upgrade_libs() {
+    std::cout << "Upgrading library scripts..." << std::endl;
+    
+    // Create a temporary directory
+    std::string temp_dir = "/tmp/icl_upgrade_" + std::to_string(std::time(nullptr));
+    std::string mkdir_cmd = "mkdir -p " + temp_dir;
+    if (system(mkdir_cmd.c_str()) != 0) {
+        std::cerr << "Error: Failed to create temporary directory" << std::endl;
+        return;
+    }
+    
+    // Clone the repository
+    std::string clone_cmd = "git clone https://github.com/powdersnow0604/linux_scripts.git " + temp_dir;
+    std::cout << "Cloning repository..." << std::endl;
+    if (system(clone_cmd.c_str()) != 0) {
+        std::cerr << "Error: Failed to clone repository" << std::endl;
+        return;
+    }
+    
+    // Check for authorize.sh in the repository
+    std::string auth_script_path = temp_dir + "/authorize.sh";
+    if (!std::filesystem::exists(auth_script_path)) {
+        std::cerr << "Error: authorize.sh not found in repository" << std::endl;
+        return;
+    }
+    
+    // Make the authorization script executable
+    std::cout << "Making authorize.sh executable..." << std::endl;
+    std::string chmod_cmd = "chmod +x " + auth_script_path;
+    if (system(chmod_cmd.c_str()) != 0) {
+        std::cerr << "Error: Failed to make authorization script executable" << std::endl;
+        return;
+    }
+    
+    // Execute the authorization script with sudo
+    std::cout << "Executing authorization script..." << std::endl;
+    std::string sudo_cmd = "sudo " + auth_script_path;
+    if (system(sudo_cmd.c_str()) != 0) {
+        std::cerr << "Error: Failed to execute authorization script" << std::endl;
+        return;
+    }
+    
+    // Remove existing libs directory if user confirms
+    if (std::filesystem::exists(libs_dir)) {
+        std::string user_input;
+        std::cout << "Are you sure you want to remove the existing libs directory? (y/n): ";
+        std::cin >> user_input;
+        if (user_input == "y" || user_input == "Y") {
+            std::string rm_cmd = "sudo rm -rf " + libs_dir;
+            if (system(rm_cmd.c_str()) != 0) {
+                std::cerr << "Warning: Failed to remove existing libs directory" << std::endl;
+            }
+        } else {
+            std::cout << "Skipping removal of libs directory." << std::endl;
+            //return;
+        }
+    }
+    
+    // Create libs directory
+    std::string mkdir_libs_cmd = "sudo mkdir -p " + libs_dir;
+    if (system(mkdir_libs_cmd.c_str()) != 0) {
+        std::cerr << "Error: Failed to create libs directory" << std::endl;
+        return;
+    }
+    
+    // Copy the libs directory from the cloned repository
+    std::string cp_cmd = "sudo cp -r " + temp_dir + "/libs/* " + libs_dir;
+    if (system(cp_cmd.c_str()) != 0) {
+        std::cerr << "Error: Failed to copy libs directory" << std::endl;
+        return;
+    }
+    
+    // Clean up
+    std::string cleanup_cmd = "rm -rf " + temp_dir;
+    if (system(cleanup_cmd.c_str()) != 0) {
+        std::cerr << "Warning: Failed to clean up temporary directory" << std::endl;
+    }
+    
+    std::cout << "Library scripts upgraded successfully." << std::endl;
+}
+
 void print_help() {
     std::cerr << "Usage: icl <command> [arguments]" << std::endl;
     std::cerr << "Commands:" << std::endl;
@@ -301,6 +509,7 @@ void print_help() {
     std::cerr << "  list                   List installed libraries" << std::endl;
     std::cerr << "  add <path...>          Add path(s) to .iclignore" << std::endl;
     std::cerr << "  delete <path...>       Delete path(s) from .iclignore" << std::endl;
+    std::cerr << "  upgrade                Upgrade library scripts from repository" << std::endl;
 }
 
 int main(int argc, char* argv[]) {
@@ -349,6 +558,8 @@ int main(int argc, char* argv[]) {
         for (int i = 2; i < argc; ++i) {
             delete_ignore_path(argv[i]);
         }
+    } else if (command == "upgrade") {
+        upgrade_libs();
     } else if (command == "--help" || command == "-h") {
         print_help();
     } else {

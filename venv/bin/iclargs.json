@@ -1,0 +1,11 @@
+{
+    "libraries": {
+        "glad": {
+            "includes": [],
+            "lib_names": [
+                "glad"
+            ],
+            "lib_paths": []
+        }
+    }
+}

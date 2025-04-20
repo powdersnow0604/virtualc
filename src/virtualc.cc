@@ -56,11 +56,11 @@ void copy_files_to_env_bin(const std::string& env_bin_dir) {
         }
     }
     
-    if (files_copied) {
-        //std::cout << "Helper files copied successfully." << std::endl;
-    } else {
-        //std::cout << "No helper files were copied." << std::endl;
-    }
+    // if (files_copied) {
+    //     std::cout << "Helper files copied successfully." << std::endl;
+    // } else {
+    //     std::cout << "No helper files were copied." << std::endl;
+    // }
     
     // Create an empty iclargs.json file in the virtual environment
     std::ofstream iclargs_file(dst_path / "iclargs.json");
