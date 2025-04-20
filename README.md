@@ -125,3 +125,9 @@ icl add <ignore path>
 # Delete ignore path
 icl path <ignore path>
 ``` 
+
+## TODO
+1. Removing package
+2. Nested environment
+3. Package registration (to linux_scripts/libs)
+4. Seperating virtualc and icl
