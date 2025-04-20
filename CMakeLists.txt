@@ -24,6 +24,16 @@ set(SOURCES_GXX ${SOURCE_DIR}/g++.cc)
 # Define installation paths
 set(VIRTUALC_BIN_DIR ${CMAKE_INSTALL_PREFIX}/bin/virtualcdir)
 
+# Define default value for virtual environment library flag (default: true)
+option(VIRTUALC_VIRTUAL_LIB_DEFAULT "Default value for VIRTUALC_VIRTUAL_LIB" ON)
+
+# Convert the boolean option to a string "true" or "false"
+if(VIRTUALC_VIRTUAL_LIB_DEFAULT)
+    set(VIRTUALC_VIRTUAL_LIB_DEFAULT_STR "\"true\"")
+else()
+    set(VIRTUALC_VIRTUAL_LIB_DEFAULT_STR "\"false\"")
+endif()
+
 # Add definitions for installation paths
 add_definitions(-DVIRTUALC_BIN_DIR="${VIRTUALC_BIN_DIR}")
 
@@ -37,9 +47,10 @@ add_definitions(-DVIRTUALC_BIN_DIR="${VIRTUALC_BIN_DIR}")
 # Add the virtualc executable
 add_executable(virtualc ${SOURCES_VIRTUALC})
 
-# Define the installation directory as a preprocessor macro
+# Define the virtualc executable
 target_compile_definitions(virtualc PRIVATE 
     VIRTUALC_BIN_DIR="${VIRTUALC_BIN_DIR}"
+    VIRTUALC_VIRTUAL_LIB_DEFAULT=${VIRTUALC_VIRTUAL_LIB_DEFAULT_STR}
 )
 
 # Modify virtualc.cc to copy files from VIRTUALC_BIN_DIR to env_name/bin
@@ -58,6 +69,10 @@ set_target_properties(gxx_wrapper PROPERTIES OUTPUT_NAME g++)
 
 add_executable(icl ${SOURCES_ICL})
 target_link_libraries(icl PRIVATE nlohmann_json)
+target_compile_definitions(icl PRIVATE 
+    VIRTUALC_BIN_DIR="${VIRTUALC_BIN_DIR}"
+    VIRTUALC_VIRTUAL_LIB_DEFAULT=${VIRTUALC_VIRTUAL_LIB_DEFAULT_STR}
+)
 
 # Add installation targets
 install(TARGETS virtualc

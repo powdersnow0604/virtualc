@@ -1,0 +1,29 @@
+When creaing iclargs.json in virtualc.cc 
+if needs to be initialized to:
+
+{
+    "libraries": {
+        "__default__": {
+            "includes": [
+                "$VIRTUAL_ENV/include"
+            ],
+            "lib_names": [
+
+            ],
+            "lib_paths": [
+                "$VIRTUAL_ENV/lib"
+            ]
+        },
+    }
+}
+
+$VIRTUAL_ENV this means path to virtual environment do not confuse it with literal string
+Therefore you need to replace it with appropritate path
+
+In icl.cc uninstall_library it must not be uninstalled
+IN icl.cc list_libraries it must not be shown
+
+__default__ is just for implementing so program should behave as it is not exists
+However when user tries to install package name __default__, you we need to print error message
+
+Also during initializing virtual environment, $VIRTUAL_ENV/include and $VIRTUAL_ENV/lib should be written in .iclignore

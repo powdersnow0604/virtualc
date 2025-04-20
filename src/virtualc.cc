@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <iostream>
 #include <fstream>
+#include <string>
 
 // Function to copy files from installation directory to environment bin
 void copy_files_to_env_bin(const std::string& env_bin_dir) {
@@ -65,11 +66,40 @@ void copy_files_to_env_bin(const std::string& env_bin_dir) {
     // Create an empty iclargs.json file in the virtual environment
     std::ofstream iclargs_file(dst_path / "iclargs.json");
     if (iclargs_file) {
-        iclargs_file << "{}" << std::endl;
+        // Initialize with default library data pointing to virtual environment
+        std::string virtual_env_path = env_bin_dir.substr(0, env_bin_dir.length() - 4); // Remove "/bin" from env_bin_dir
+        std::string json_content = "{\n"
+            "    \"libraries\": {\n"
+            "        \"__default__\": {\n"
+            "            \"includes\": [\n"
+            "                \"" + virtual_env_path + "/include\"\n"
+            "            ],\n"
+            "            \"lib_names\": [\n"
+            "\n"
+            "            ],\n"
+            "            \"lib_paths\": [\n"
+            "                \"" + virtual_env_path + "/lib\"\n"
+            "            ]\n"
+            "        }\n"
+            "    }\n"
+            "}";
+        
+        iclargs_file << json_content << std::endl;
         iclargs_file.close();
-        //std::cout << "Created empty iclargs.json file in " << env_bin_dir << std::endl;
     } else {
         std::cerr << "Error creating iclargs.json file in " << env_bin_dir << std::endl;
+    }
+    
+    // Create a config file for additional pkg-config paths
+    std::ofstream pkgconfig_file(dst_path / "pkgconfig.conf");
+    if (pkgconfig_file) {
+        pkgconfig_file << "# Additional pkg-config paths for this virtual environment" << std::endl;
+        pkgconfig_file << "# Add one path per line. Lines starting with # are comments" << std::endl;
+        pkgconfig_file << "# Example:" << std::endl;
+        pkgconfig_file << "# /some/custom/path/lib/pkgconfig" << std::endl;
+        pkgconfig_file.close();
+    } else {
+        std::cerr << "Error creating pkgconfig.conf file in " << env_bin_dir << std::endl;
     }
 }
 
@@ -85,8 +115,16 @@ int main(int argc, char *argv[])
     std::filesystem::path env_path = std::filesystem::absolute(argv[1]);
     std::string env_name = env_path.filename().string();
 
+    // Get the default value for VIRTUALC_VIRTUAL_LIB
+    #ifdef VIRTUALC_VIRTUAL_LIB_DEFAULT
+        const char* virtual_lib_default = VIRTUALC_VIRTUAL_LIB_DEFAULT;
+    #else
+        // Fallback for when not defined during compilation
+        const char* virtual_lib_default = "true";
+    #endif
+
     char buffer[4096];
-    const char *activate_script =
+    const char* activate_script =
         "# This file must be used with \"source bin/activate\" *from bash*\n"
         "# You cannot run it directly\n"
         "\n"
@@ -101,6 +139,14 @@ int main(int argc, char *argv[])
         "    # Remove GCC and G++ paths\n"
         "    unset _GCC_PATH\n"
         "    unset _GXX_PATH\n"
+        "\n"
+        "    # Unset the virtual environment library flag\n"
+        "    unset VIRTUALC_VIRTUAL_LIB\n"
+        "    if [ -n \"${_OLD_PKG_CONFIG_LIBDIR_PATH:-}\" ] ; then\n"
+        "        PKG_CONFIG_LIBDIR=\"${_OLD_PKG_CONFIG_LIBDIR_PATH:-}\"\n"
+        "        export PKG_CONFIG_LIBDIR\n"
+        "        unset _OLD_PKG_CONFIG_LIBDIR_PATH\n"
+        "    fi\n"
         "\n"
         "    # Call hash to forget past commands. Without forgetting\n"
         "    # past commands the $PATH changes we made may not be respected\n"
@@ -137,6 +183,13 @@ int main(int argc, char *argv[])
         "    export VIRTUAL_ENV=%s\n"
         "fi\n"
         "\n"
+        "# Set the virtual environment library flag\n"
+        "export VIRTUALC_VIRTUAL_LIB=%s\n"
+        "\n"
+        "# Set PKG_CONFIG_LIBDIR to include the virtual environment's pkgconfig directory\n"
+        "export _OLD_PKG_CONFIG_LIBDIR_PATH=\"$PKG_CONFIG_LIBDIR\"\n"
+        "unset PKG_CONFIG_LIBDIR\n"
+        "\n"
         "_OLD_VIRTUAL_PATH=\"$PATH\"\n"
         "PATH=\"$VIRTUAL_ENV/bin:$PATH\"\n"
         "export PATH\n"
@@ -156,6 +209,7 @@ int main(int argc, char *argv[])
     snprintf(buffer, sizeof(buffer), activate_script, 
              env_path.string().c_str(), 
              env_path.string().c_str(), 
+             virtual_lib_default,
              env_name.c_str(), 
              env_name.c_str());
 
@@ -170,6 +224,31 @@ int main(int argc, char *argv[])
     if (mkdir("bin", 0755) == -1)
     {
         perror("mkdir");
+        return 1;
+    }
+
+    // Create lib/pkgconfig directory for virtual environment
+    if (mkdir("lib", 0755) == -1)
+    {
+        perror("mkdir lib");
+        return 1;
+    }
+
+    if (mkdir("include", 0755) == -1)
+    {
+        perror("mkdir include");
+        return 1;
+    }
+    
+    if (mkdir("lib/pkgconfig", 0755) == -1)
+    {
+        perror("mkdir lib/pkgconfig");
+        return 1;
+    }
+
+    if (mkdir("lib/cmake", 0755) == -1)
+    {
+        perror("mkdir lib/cmake");
         return 1;
     }
 
@@ -202,10 +281,15 @@ int main(int argc, char *argv[])
     }
     iclignore_file << "/usr/local/include" << std::endl;
     iclignore_file << "/usr/local/lib" << std::endl;
+
+    // Add virtual environment paths to .iclignore
+    iclignore_file << std::filesystem::absolute("include").string() << std::endl;
+    iclignore_file << std::filesystem::absolute("lib").string() << std::endl;
+
     iclignore_file.close(); // Close the file after writing
 
     // Copy helper files from installation directory
-    copy_files_to_env_bin("bin");
+    copy_files_to_env_bin(std::filesystem::absolute("bin").string());
 
     printf("Virtual environment '%s' created successfully.\n", argv[1]);
     printf("To activate, run: source %s/bin/activate\n", env_path.string().c_str());

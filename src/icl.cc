@@ -10,8 +10,17 @@
 
 using json = nlohmann::json;
 
+// Default value for VIRTUALC_VIRTUAL_LIB if not defined at activation time
+#ifdef VIRTUALC_VIRTUAL_LIB_DEFAULT
+    const char* virtual_lib_default = VIRTUALC_VIRTUAL_LIB_DEFAULT;
+#else
+    // Fallback for when not defined during compilation
+    const char* virtual_lib_default = "true";
+#endif
 
+// Get the virtual environment path
 std::string env_bin_dir = std::string(std::getenv("VIRTUAL_ENV")) + "/bin";
+
 // Define the directory where custom library scripts are stored
 #ifdef VIRTUALC_BIN_DIR
     const char* source_dir = VIRTUALC_BIN_DIR;
@@ -19,7 +28,15 @@ std::string env_bin_dir = std::string(std::getenv("VIRTUAL_ENV")) + "/bin";
     // Fallback for when not defined during compilation
     const char* source_dir = "/usr/local/bin/virtualcdir";
 #endif
+
+// Define the directory where custom library scripts are stored
 std::string libs_dir = std::string(source_dir) + "/libs";
+
+// Define is_virtual_lib
+bool is_virtual_lib = std::string(std::getenv("VIRTUALC_VIRTUAL_LIB")) == "true";
+
+
+//====================================================================================
 
 // Function to convert string to uppercase
 std::string to_uppercase(const std::string& str) {
@@ -125,9 +142,56 @@ void delete_ignore_path(const std::string& path) {
     std::cout << "Deleted path '" << path << "' from .iclignore" << std::endl;
 }
 
+// Function to make localized environment variables
+std::string make_pkg_config_localized_env_vars() {
+    std::string pkg_config_paths;
+
+    const char* virtual_env = std::getenv("VIRTUAL_ENV");
+    if (virtual_env) {
+        std::string virtual_env_path = std::string(virtual_env);
+        std::string pkgconfig_conf_path = virtual_env_path + "/bin/pkgconfig.conf";
+        
+        // Read additional pkg-config paths from config file
+        std::ifstream pkgconfig_conf(pkgconfig_conf_path);
+        std::vector<std::string> additional_paths;
+        
+        if (pkgconfig_conf.is_open()) {
+            std::string line;
+            while (std::getline(pkgconfig_conf, line)) {
+                // Skip comments and empty lines
+                if (!line.empty() && line[0] != '#') {
+                    additional_paths.push_back(line);
+                }
+            }
+            pkgconfig_conf.close();
+        }
+        // Add virtual environment's pkgconfig path first if VIRTUALC_VIRTUAL_LIB is true
+        pkg_config_paths = virtual_env_path + "/lib/pkgconfig";
+        
+        // Add additional custom paths
+        for (const auto& path : additional_paths) {
+            pkg_config_paths += ":" + path;
+        }   
+    }
+
+    if (is_virtual_lib) {
+        return "PKG_CONFIG_LIBDIR=\"" + pkg_config_paths + "\"";
+    } else {
+        return "PKG_CONFIG_PATH=\"" + pkg_config_paths + "\":$PKG_CONFIG_PATH";
+    }
+}
+
+// Function to make cmd for pkg-config
+std::string make_pkg_config_cmd(const std::string& args) {
+    return make_pkg_config_localized_env_vars() + " pkg-config " + args + " 2>/dev/null";
+}
+
 // Function to run pkg-config and get the output
 bool run_pkg_config(const std::string& args, std::string& result) {
-    std::string cmd = "pkg-config " + args + " 2>/dev/null";
+    
+    // Get the virtual environment path
+    std::string cmd = make_pkg_config_cmd(args);
+    
     
     // Define a custom deleter to avoid the attributes warning
     struct PipeDeleter {
@@ -211,6 +275,25 @@ void parse_pkg_config_output(const std::string& output, std::vector<std::string>
 
 // Function to try installing a library using custom script
 bool try_install_custom_library(const std::string& lib_name) {
+    
+    // Get virtual environment path if needed
+    std::string virtual_env_path;
+    std::string install_prefix;
+    
+    if (is_virtual_lib) {
+        // Get the virtual environment path
+        const char* virtual_env = std::getenv("VIRTUAL_ENV");
+        if (virtual_env) {
+            virtual_env_path = std::string(virtual_env);
+            install_prefix = virtual_env_path;
+        } else {
+            std::cerr << "Error: VIRTUAL_ENV not set but VIRTUALC_VIRTUAL_LIB is true" << std::endl;
+            return false;
+        }
+    } else {
+        install_prefix = "";
+    }
+    
     // Convert library name to uppercase for directory search
     std::string lib_dir_name = to_uppercase(lib_name);
     std::string script_path = libs_dir + "/" + lib_dir_name + "/install_" + to_lowercase(lib_name) + ".sh";
@@ -225,11 +308,6 @@ bool try_install_custom_library(const std::string& lib_name) {
     }
     script_file.close();
     
-    // Make sure the script is executable
-    // Assume the script is already executable (from virtualc install or upgrade)
-    // std::string chmod_cmd = "sudo chmod +x " + script_path;
-    // execute_command(chmod_cmd);
-
     // Create a temporary directory for installation
     std::string temp_dir = "/tmp/icl_install_" + lib_name + "_" + std::to_string(std::time(nullptr));
     std::string mkdir_cmd = "mkdir -p " + temp_dir;
@@ -245,7 +323,12 @@ bool try_install_custom_library(const std::string& lib_name) {
     std::string version;
     std::cout << "Enter version number for " << lib_name << ": ";
     std::getline(std::cin, version);
-    cmd_args = version;
+
+    if (version.empty()) {
+        cmd_args = "0";
+    } else {
+        cmd_args = version;
+    }
     
     // Check if .morevariable file exists
     std::ifstream morevariable_file(morevariable_path);
@@ -266,6 +349,12 @@ bool try_install_custom_library(const std::string& lib_name) {
         }
         morevariable_file.close();
     }
+    
+    // Add install prefix to command arguments for installation path
+    if (is_virtual_lib) {
+        std::cout << "Installing to virtual environment: " << install_prefix << std::endl;
+    }
+    cmd_args += " \"" + install_prefix + "\"";
     
     // Execute the installation script with all arguments in the temporary directory
     std::string cmd = "cd " + temp_dir + " && " + script_path + " " + cmd_args;
@@ -288,12 +377,18 @@ bool try_install_custom_library(const std::string& lib_name) {
 
 // Function to install a library
 void install_library(const std::string& lib_name) {
+    // Check if trying to install __default__ library
+    if (lib_name == "__default__") {
+        std::cerr << "Error: Cannot install a library named '__default__' as it is reserved for system use." << std::endl;
+        return;
+    }
+
     // Check if pkg-config knows about this library
     std::string cflags, libs;
     
     // Run pkg-config --exists to check if the package exists
-    std::string check_cmd = "pkg-config --exists " + lib_name;
-    int pkg_exists = system(check_cmd.c_str());
+    std::string check_cmd = "--exists " + lib_name;
+    int pkg_exists = system(make_pkg_config_cmd(check_cmd).c_str());
     
     // If pkg-config doesn't find the library, try custom installation
     if (pkg_exists != 0) {
@@ -304,7 +399,7 @@ void install_library(const std::string& lib_name) {
         
         // If custom installation succeeded, check pkg-config again
         if (custom_install_success) {
-            pkg_exists = system(check_cmd.c_str());
+            pkg_exists = system(make_pkg_config_cmd(check_cmd).c_str());
             if (pkg_exists != 0) {
                 std::cerr << "Error: Library '" << lib_name << "' was not found by pkg-config after custom installation" << std::endl;
                 return;
@@ -367,6 +462,12 @@ void install_library(const std::string& lib_name) {
 
 // Function to uninstall a library
 void uninstall_library(const std::string& lib_name) {
+    // Prevent uninstallation of __default__ library
+    if (lib_name == "__default__") {
+        std::cerr << "Error: Cannot uninstall the '__default__' library as it is required by the system." << std::endl;
+        return;
+    }
+
     // Read the current json file
     json iclargs;
     std::ifstream args_file(env_bin_dir + "/iclargs.json");
@@ -409,11 +510,30 @@ void list_libraries() {
     }
     
     // List the libraries
-    if (iclargs.contains("libraries") && !iclargs["libraries"].empty()) {
-        std::cout << "Installed libraries:" << std::endl;
-        for (auto& [lib_name, lib_data] : iclargs["libraries"].items()) {
-            std::cout << "- " << lib_name << std::endl;
-        }
+    //if (iclargs.contains("libraries") && !iclargs["libraries"].empty()) {
+    if (iclargs.contains("libraries") && iclargs["libraries"].size() > 1) {
+        // bool has_user_libraries = false;
+        
+        // // Check if there are any libraries other than __default__
+        // for (auto& [lib_name, lib_data] : iclargs["libraries"].items()) {
+        //     if (lib_name != "__default__") {
+        //         has_user_libraries = true;
+        //         break;
+        //     }
+        // }
+        
+        //if (has_user_libraries) {
+            std::cout << "Installed libraries:" << std::endl;
+            
+            for (auto& [lib_name, lib_data] : iclargs["libraries"].items()) {
+                // Skip the __default__ library
+                if (lib_name != "__default__") {
+                    std::cout << "- " << lib_name << std::endl;
+                }
+            }
+        //} else {
+        //    std::cout << "No libraries installed." << std::endl;
+        //}
     } else {
         std::cout << "No libraries installed." << std::endl;
     }
