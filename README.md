@@ -83,6 +83,9 @@ Add one path per line (lines starting with # are comments):
 ```
 
 ### Installing Libraries
+If library cannot be found by pkgconfig, 
+icl tries to install with shell script under $CMAKE_INSTALL_PREFIX/bin/virtualcdir/libs
+Scripts are came from [here](https://github.com/powdersnow0604/linux_scripts)
 
 When `VIRTUALC_VIRTUAL_LIB` is true:
 - pkg-config will only check .pc files under `$VIRTUAL_ENV/lib/pkgconfig` and any additional paths specified in pkgconfig.conf
@@ -124,6 +127,13 @@ icl add <ignore path>
 ```bash
 # Delete ignore path
 icl path <ignore path>
+``` 
+
+### Upgrade installation scripts
+
+```bash
+# Replace installation scripts
+icl upgrade
 ``` 
 
 ## TODO
