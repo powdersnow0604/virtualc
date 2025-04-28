@@ -1,95 +1,65 @@
-cmake_minimum_required(VERSION 3.14)
-project(VirtualC VERSION 1.0)
+cmake_minimum_required(VERSION 3.10)
+project(virtualc_init CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Always use FetchContent because i want to use nlohmann_json under directory json not nlohmann
-include(FetchContent)
-
-FetchContent_Declare(
-    nlohmann_json
-    GIT_REPOSITORY https://github.com/nlohmann/json.git
-    GIT_TAG v3.12.0
-)
-FetchContent_MakeAvailable(nlohmann_json)
-
-# Define the source files
-set(SOURCE_DIR src)
-set(SOURCES_VIRTUALC ${SOURCE_DIR}/virtualc.cc)
-set(SOURCES_ICL ${SOURCE_DIR}/icl.cc)
-set(SOURCES_GCC ${SOURCE_DIR}/gcc.cc)
-set(SOURCES_GXX ${SOURCE_DIR}/g++.cc)
-
-# Define installation paths
-set(VIRTUALC_BIN_DIR ${CMAKE_INSTALL_PREFIX}/bin/virtualcdir)
-
-# Define default value for virtual environment library flag (default: true)
-option(VIRTUALC_VIRTUAL_LIB_DEFAULT "Default value for VIRTUALC_VIRTUAL_LIB" ON)
-
-# Convert the boolean option to a string "true" or "false"
-if(VIRTUALC_VIRTUAL_LIB_DEFAULT)
-    set(VIRTUALC_VIRTUAL_LIB_DEFAULT_STR "\"true\"")
-else()
-    set(VIRTUALC_VIRTUAL_LIB_DEFAULT_STR "\"false\"")
-endif()
-
-# Add definitions for installation paths
+# Define virtualcdir path
+set(VIRTUALC_BIN_DIR "/usr/local/bin/virtualcdir")
 add_definitions(-DVIRTUALC_BIN_DIR="${VIRTUALC_BIN_DIR}")
 
-# Add custom command to create the virtualcdir/bin directory during build
-# add_custom_command(
-#     OUTPUT ${CMAKE_BINARY_DIR}/virtualcdir_bin_dir
-#     COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/virtualcdir_bin_dir
-#     COMMENT "Creating virtualcdir bin directory"
-# )
+include(FetchContent)
 
-# Add the virtualc executable
-add_executable(virtualc ${SOURCES_VIRTUALC})
+# Fetch toml++
+FetchContent_Declare(
+    tomlplusplus
+    GIT_REPOSITORY https://github.com/marzer/tomlplusplus.git
+    GIT_TAG        v3.4.0 # You can update to a newer tag if needed
+)
+FetchContent_MakeAvailable(tomlplusplus)
 
-# Define the virtualc executable
-target_compile_definitions(virtualc PRIVATE 
-    VIRTUALC_BIN_DIR="${VIRTUALC_BIN_DIR}"
-    VIRTUALC_VIRTUAL_LIB_DEFAULT=${VIRTUALC_VIRTUAL_LIB_DEFAULT_STR}
+# Fetch cxxopts
+FetchContent_Declare(
+    cxxopts
+    GIT_REPOSITORY https://github.com/jarro2783/cxxopts.git
+    GIT_TAG        v3.1.1 # You can update to a newer tag if needed
+)
+FetchContent_MakeAvailable(cxxopts)
+
+# List all source files
+set(SOURCES
+    src/virtualc.cc
+    src/virtualc_common.cc
+    src/virtualc_init.cc
+    src/virtualc_install.cc
+    src/virtualc_uninstall.cc
+    src/virtualc_list.cc
+    src/virtualc_run.cc
+    src/virtualc_upgrade.cc
+    src/virtualc_clear.cc
 )
 
-# Modify virtualc.cc to copy files from VIRTUALC_BIN_DIR to env_name/bin
-# target_compile_definitions(virtualc PRIVATE
-#     VIRTUALC_DATA_DIR="${VIRTUALC_BIN_DIR}"
-# )
+add_executable(vc ${SOURCES})
 
-# Add the compiler wrapper executables
-add_executable(gcc_wrapper ${SOURCES_GCC})
-target_link_libraries(gcc_wrapper PRIVATE nlohmann_json)
-set_target_properties(gcc_wrapper PROPERTIES OUTPUT_NAME gcc)
-
-add_executable(gxx_wrapper ${SOURCES_GXX})
-target_link_libraries(gxx_wrapper PRIVATE nlohmann_json)
-set_target_properties(gxx_wrapper PROPERTIES OUTPUT_NAME g++)
-
-add_executable(icl ${SOURCES_ICL})
-target_link_libraries(icl PRIVATE nlohmann_json)
-target_compile_definitions(icl PRIVATE 
-    VIRTUALC_BIN_DIR="${VIRTUALC_BIN_DIR}"
-    VIRTUALC_VIRTUAL_LIB_DEFAULT=${VIRTUALC_VIRTUAL_LIB_DEFAULT_STR}
+# Link toml++ and cxxopts
+# tomlplusplus is header-only, so just add include dir
+# cxxopts is also header-only
+target_include_directories(vc PRIVATE 
+    ${tomlplusplus_SOURCE_DIR}/include
+    ${cxxopts_SOURCE_DIR}/include
 )
 
 # Add installation targets
-install(TARGETS virtualc
+install(TARGETS vc
     RUNTIME DESTINATION bin
-)
-
-install(TARGETS gcc_wrapper gxx_wrapper icl
-    RUNTIME DESTINATION bin/virtualcdir
 )
 
 # Add custom install command to clone the linux_scripts repository
 # and place the 'libs' directory in the VIRTUALC_BIN_DIR
 install(CODE "
     message(STATUS \"Cloning linux_scripts repository...\")
-    
     # Define temp directory path
-    set(TEMP_DIR \"/tmp/virtualc_install_temp\")
+    set(TEMP_DIR \"/tmp/vc_install_temp\")
     
     # Remove temp directory if it already exists
     if(EXISTS \"\${TEMP_DIR}\")
@@ -111,7 +81,7 @@ install(CODE "
     if(NOT exit_code EQUAL 0)
         message(FATAL_ERROR \"Failed to create temporary directory\")
     endif()
-
+    
     # Clone repository
     execute_process(
         COMMAND git clone --depth 1 https://github.com/powdersnow0604/linux_scripts.git \"\${TEMP_DIR}\"
@@ -120,7 +90,7 @@ install(CODE "
     if(NOT exit_code EQUAL 0)
         message(FATAL_ERROR \"Failed to clone repository\")
     endif()
-
+    
     # Check if libs directory exists in the cloned repository
     if(NOT EXISTS \"\${TEMP_DIR}/libs\")
         message(FATAL_ERROR \"The 'libs' directory was not found in the cloned repository.\")
@@ -129,7 +99,7 @@ install(CODE "
     # Check if authorize.sh exists
     if(EXISTS \"\${TEMP_DIR}/authorize.sh\")
         message(STATUS \"Running authorize.sh script to authorize all shell scripts\")
-        # Change to the directory containing the script
+        # Make the script executable
         execute_process(
             COMMAND chmod +x \"\${TEMP_DIR}/authorize.sh\"
             RESULT_VARIABLE exit_code
@@ -161,7 +131,7 @@ install(CODE "
     if(NOT exit_code EQUAL 0)
         message(FATAL_ERROR \"Failed to create libs directory in ${VIRTUALC_BIN_DIR}\")
     endif()
-
+    
     # Copy libs directory
     execute_process(
         COMMAND sudo cp -r \"\${TEMP_DIR}/libs/.\" \"${VIRTUALC_BIN_DIR}/libs/\"
@@ -170,7 +140,7 @@ install(CODE "
     if(NOT exit_code EQUAL 0)
         message(FATAL_ERROR \"Failed to copy libs directory to ${VIRTUALC_BIN_DIR}/libs\")
     endif()
-
+    
     # Clean up
     execute_process(
         COMMAND sudo rm -rf \"\${TEMP_DIR}\"
@@ -181,6 +151,9 @@ install(CODE "
     else()
         message(STATUS \"Temporary directory cleaned up successfully.\")
     endif()
-
+    
     message(STATUS \"Successfully installed library scripts to ${VIRTUALC_BIN_DIR}/libs\")
 ")
+
+# If you need to link any libraries, add them here:
+# target_link_libraries(virtualc ...) 

@@ -1,143 +1,101 @@
 # VirtualC
 
-VirtualC is a tool for creating isolated C/C++ development environments, similar to Python's virtualenv.
+VirtualC (or `vc`) is a package manager and virtual environment tool for C/C++ projects. It simplifies dependency management and project configuration by creating isolated environments for each project.
+
+## Features
+
+- **Project Initialization**: Create new C/C++ projects with proper configuration
+- **Package Management**: Install, uninstall, and list packages
+- **Multiple Package Support**: Install or uninstall multiple packages at once
+- **Dependency Resolution**: Automatically installs required dependencies
+- **Run Command**: Compile and run C/C++ files with proper dependencies
+- **Environment Isolation**: Each project has its own isolated environment
+- **Upgrade Command**: Keep library scripts up to date
 
 ## Installation
 
 ```bash
-mkdir build && cd build
-cmake ..
-make
-sudo make install
-
-# Alternatively
-
-chmod +x build.sh
+git clone https://github.com/powdersnow0604/virtualc.git
+cd virtualc
 ./build.sh
 ```
 
-### Build Options
-
-You can customize the build using CMake options:
-
-```bash
-# To set the default value of VIRTUALC_VIRTUAL_LIB to false
-mkdir build && cd build
-cmake -DVIRTUALC_VIRTUAL_LIB_DEFAULT=OFF ..
-make
-sudo make install
-```
-
-Available options:
-- `VIRTUALC_VIRTUAL_LIB_DEFAULT`: Sets the default value for the `VIRTUALC_VIRTUAL_LIB` environment variable (ON/OFF, default: ON)
-
 ## Usage
 
-### Create a new virtual environment
+### Initialize a Project
 
 ```bash
-virtualc my_project
+vc init [path] [options]
 ```
 
-### Activate a virtual environment
+Options:
+- `-c, --compiler`: Set compiler path
+- `-x, --cxx`: Use g++ as default compiler instead of gcc
+- `-g, --global`: Install packages globally at specified path
+
+### Install Packages
 
 ```bash
-source my_project/bin/activate
+vc install <package1> [package2] [package3] ...
 ```
 
-### Deactivate a virtual environment
+Packages should be registered to pkg-config  
+Or the install script should exist in https://github.com/powdersnow0604/linux_scripts
+
+### Uninstall Packages
 
 ```bash
-deactivate
+vc uninstall <package1> [package2] [package3] ...
 ```
 
-## Virtual Environment Library Management
-
-VirtualC now supports virtual libraries. When the virtual environment is activated, libraries can be installed into the virtual environment itself rather than system-wide.
-
-### How it works
-
-When a virtual environment is activated:
-
-1. The `VIRTUALC_VIRTUAL_LIB` environment variable is set to `true` by default (can be changed at build time)
-2. The `PKG_CONFIG_PATH` is set to include `$VIRTUAL_ENV/lib/pkgconfig`
-3. New libraries installed using `icl install` will be placed in the virtual environment
-
-### Adding Additional pkg-config Paths
-
-You can add additional pkg-config search paths by editing the `pkgconfig.conf` file in your virtual environment's bin directory:
+### List Installed Packages
 
 ```bash
-# Activate your virtual environment
-source my_project/bin/activate
-
-# Edit the pkgconfig.conf file
-nano $VIRTUAL_ENV/bin/pkgconfig.conf
+vc list
 ```
 
-Add one path per line (lines starting with # are comments):
-
-```
-/path/to/custom/lib/pkgconfig
-/another/path/pkgconfig
-```
-
-### Installing Libraries
-If library cannot be found by pkgconfig, 
-icl tries to install with shell script under $CMAKE_INSTALL_PREFIX/bin/virtualcdir/libs
-Scripts are came from [here](https://github.com/powdersnow0604/linux_scripts)
-
-When `VIRTUALC_VIRTUAL_LIB` is true:
-- pkg-config will only check .pc files under `$VIRTUAL_ENV/lib/pkgconfig` and any additional paths specified in pkgconfig.conf
-- New libraries installed using `icl install` will be placed under the virtual environment path
-
-When `VIRTUALC_VIRTUAL_LIB` is false:
-- pkg-config behavior is unchanged, checking system-wide locations
-- However, it will also check .pc files under `$VIRTUAL_ENV/lib/pkgconfig`
-
-## Commands
-
-### Install a library
+### Run a C/C++ File
 
 ```bash
-icl install <library_name>
+vc run <filename> [compiler_args]
 ```
 
-### Uninstall a library
+### Upgrade Library Scripts
 
 ```bash
-icl uninstall <library_name>
+vc upgrade
 ```
 
-### List installed libraries
+### Clear Project
 
 ```bash
-icl list
-``` 
+vc clear
+```
 
-### Add ignore path
+## Project Structure
 
-```bash
-# Added path will be ignored during installing
-icl add <ignore path>
-``` 
+When you initialize a project with VirtualC, it creates:
+- `cproject.toml`: Project configuration
+- `.libpath`: Tracks installed packages
+- `.venv/`: Directory containing installed packages
+- `.ignorepath`: Path patterns to ignore
+- `.verified`: Indicates dependencies have been verified
 
-### Delete ignore path
-
-```bash
-# Delete ignore path
-icl path <ignore path>
-``` 
-
-### Upgrade installation scripts
+## Example Workflow
 
 ```bash
-# Replace installation scripts
-icl upgrade
-``` 
+# Initialize a new project
+vc init my_project
 
-## TODO
-1. Removing package
-2. Nested environment
-3. Package registration (to linux_scripts/libs)
-4. Seperating virtualc and icl
+# Navigate to project directory
+cd my_project
+
+# Install some libraries
+vc install libcurl json-c
+
+# Create a C file that uses the libraries
+echo '#include <stdio.h>\n#include <curl/curl.h>\nint main() {\n  printf("Hello VirtualC!\\n");\n  return 0;\n}' > main.c
+
+# Run the file with dependencies
+vc run main.c
+```
